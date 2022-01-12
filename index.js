@@ -1,11 +1,38 @@
 const express = require('express')
 const cors = require('cors')
+require('dotenv').config()
+
+const Person = require('./models/person')
 
 const app = express()
+
 app.use(cors())
 app.use(express.static('build'))
-
 app.use(express.json())     // json-parser
+
+const errorHandler = (error, request, response, next) => {
+    console.log(error.message)
+
+    if (error.name === 'CastError') {
+        return response.status(400).send({error: 'malformatted id'})
+    }else if(error.name === 'ValidationError'){
+        return response.status(400).json({error: error.message})
+    }
+
+    next(error)
+}
+
+const requestLogger = (request, response, next) => {
+    console.log('Method', request.method)
+    console.log('Path', request.path)
+    console.log('Body', request.body)
+    console.log('---')
+    next()
+}
+
+app.use(requestLogger)
+
+
 
 let persons = [
     { 
@@ -32,82 +59,103 @@ let persons = [
 
 
 
-const totalPeople = persons.length
-
 app.get('/info', (request, response) => {
-    response.send(`<p>Phonebook has info for ${totalPeople} people</p><br/><p>${new Date()}</p>`)       // Since the parameter is a string, express automatically sets the value of the Content-Type header 
-})                                          // to be text/html. The status code of the response defaults to 200.
+
+    let totalPeople
+
+    Person.find({}).then(persons => {
+        totalPeople = persons.length
+    })
+    .then(result => {
+        response.send(`<p>Phonebook has info for ${totalPeople} people</p><br/><p>${new Date()}</p>`)
+    })  
+})
 
 app.get('/api/persons', (request, response) => {
-    response.json(persons)                        // Express automatically sets the Content-Type header with the appropriate value of application/json
+    Person.find({}).then(persons => {
+        response.json(persons)
+    })
 })
 
-app.get('/api/persons/:id', (request, response) => {
+app.get('/api/persons/:id', (request, response, next) => {
     const id = request.params.id
-    const note = persons.find(note => note.id == id)      // notice the == and not === becouse request.params.id is string, and not an integer
-    if (note) {
-        response.json(note)   
-    } else {
-        response.status(404).end()
-    }    
+    Person.findById(id).then(person => {
+        if (person) {
+            response.json(person)
+        } else {
+            response.status(404).end()
+        }        
+    })
+    .catch(error => next(error))
 })
 
 
 
-app.delete('/api/persons/:id', (request, response) => {
-    const id = Number(request.params.id)
-    persons = persons.filter(note => note.id !== id)
-    response.status(204).end()
+app.delete('/api/persons/:id', (request, response, next) => {
+    const id = request.params.id
+    Person.findByIdAndDelete(id)
+        .then(result => {
+            response.status(204).end()
+        })
+        .catch(error => next(error))
 })
 
-const generateId = () => {
-    const maxId = persons.length > 0
-    ? Math.max(...persons.map(note => note.id))
-    : 0
-    return maxId + 1
+
+app.post('/api/persons', (request, response, next) => {
+
+    const body = request.body    
+
+    // if (!body.name || !body.number) {
+    //     return response.status(400).json({
+    //         error: 'Name or number missing'
+    //     })
+    // }
+
+    const person = new Person({
+        name: body.name,
+        number: body.number,        
+    })
+    
+    person.save()
+    .then(savedPerson => {
+        response.json(savedPerson)
+    })
+    .catch(error => next(error))
+    
+})
+
+app.put('/api/persons/:id', (request, response, next) => {
+    
+    const body = request.body
+
+    const person = {
+        name: body.name,
+        number: body.number,
+    }
+    
+    Person.findByIdAndUpdate(request.params.id, person, {new: true})
+        .then(updatedPerson => {
+            response.json(updatedPerson)
+        })
+        .catch(error => next(error))
+})
+
+const unknownEndpoint = (request, response) => {
+    response.status(404).send({error: 'unknown endpoint'})
 }
 
-app.post('/api/persons', (request, response) => {
+app.use(unknownEndpoint)
 
-    const body = request.body                       // Without the json-parser, the body property would be undefined    
-
-    let nameIsNotUnique = false
-
-    if (!body.name || !body.number) {
-        return response.status(400).json({
-            error: 'Content missing'
-        })
-    }
-
-    persons.forEach((person) => {
-        if (
-            JSON.stringify(person. name.toLocaleLowerCase()) === JSON.stringify(body.name.toLocaleLowerCase())
-        ) {
-            return response.status(400).json({error: 'Name must be unique'}), nameIsNotUnique = true
-        
-        }
-    })
-
-    if (nameIsNotUnique) {
-        return
-    }
-    
-    const person = {
-        id: generateId(),
-        name: body.name,
-        number: body.number
-        // date: new Date(),        
-    } 
-    
-    persons = persons.concat(person)    
-    response.json(person)
-    
-})
+app.use(errorHandler)
 
 
 
-const PORT = process.env.PORT || 3002
+const PORT = process.env.PORT
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`)
 })
+
+// heroku
+// https://sleepy-badlands-39412.herokuapp.com/
+// https://sleepy-badlands-39412.herokuapp.com/api/persons
