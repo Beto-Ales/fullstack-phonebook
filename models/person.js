@@ -14,8 +14,7 @@ mongoose.connect(url)
     })
 
 function validator (val) {
-    const strNumber = String(val)                   // custom validation
-    return strNumber.length >= 8
+    return /\d{3}-\d{5}/.test(val) || /\d{2}-\d{6}/.test(val)
 }
 
 const personSchema = new mongoose.Schema({
@@ -26,8 +25,8 @@ const personSchema = new mongoose.Schema({
         unique: true
     },
     number: {
-        type: Number,
-        validate: {validator, message: `8 digits required`},
+        type: String,
+        validate: {validator, message: `8 digits required, and the format must be 55-555555 or 555-55555`},
         require: true
     },
 })
